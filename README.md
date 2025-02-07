@@ -37,8 +37,15 @@
     
 
 ## 游戏截图
+开始界面:
+![Clipboard_Screenshot_1738898238](https://github.com/user-attachments/assets/86e901c8-2879-49be-ad47-e550087f25bd)
 
-（建议在此处添加游戏界面、记分板、死亡提示等截图以便更直观展示游戏效果）
+记分板:
+![Clipboard_Screenshot_1738898269](https://github.com/user-attachments/assets/62eb8b10-2467-430a-b774-13bbb46242e9)
+
+游戏页面:
+![Clipboard_Screenshot_1738898299](https://github.com/user-attachments/assets/c4b8d11e-6979-4d8c-84a3-0adaaa48ba45)
+
 
 ## 安装与运行
 
