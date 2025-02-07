@@ -41,6 +41,7 @@
 ![Clipboard_Screenshot_1738898238](https://github.com/user-attachments/assets/86e901c8-2879-49be-ad47-e550087f25bd)
 
 记分板:
+
 ![Clipboard_Screenshot_1738898269](https://github.com/user-attachments/assets/62eb8b10-2467-430a-b774-13bbb46242e9)
 
 游戏页面:
