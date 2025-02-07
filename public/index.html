@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>Snake Battle Royale</title>
     <style>
@@ -54,7 +55,8 @@
             z-index: 1000;
         }
 
-        input, button {
+        input,
+        button {
             margin: 10px;
             padding: 10px;
             font-size: 18px;
@@ -63,8 +65,60 @@
         #gameCanvas {
             display: block;
         }
+
+        #deathScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-content {
+            background: #222;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            color: white;
+        }
+
+        .modal-content h2 {
+            color: #ff4444;
+            margin: 0 0 20px 0;
+            font-size: 32px;
+        }
+
+        .score-info {
+            margin: 20px 0;
+            font-size: 20px;
+        }
+
+        .score-info p {
+            margin: 10px 0;
+        }
+
+        #deathScreen button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            font-size: 18px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        #deathScreen button:hover {
+            background: #45a049;
+        }
     </style>
 </head>
+
 <body>
     <div id="loginScreen">
         <h1>Snake Battle Royale</h1>
@@ -75,9 +129,19 @@
         <canvas id="gameCanvas"></canvas>
         <div id="scoreboard"></div>
     </div>
+    <div id="deathScreen" style="display: none;">
+        <div class="modal-content">
+            <h2>Game Over!</h2>
+            <div class="score-info">
+                <p>Final Score: <span id="finalScore">0</span></p>
+                <p>Final Rank: #<span id="finalRank">0</span></p>
+            </div>
+            <button onclick="retryGame()">Try Again</button>
+        </div>
+    </div>
 
     <script>
-                const BOARD_SIZE = 2552;
+        const BOARD_SIZE = 2552;
         const GRID_SIZE = 8;
         let gameState = {
             players: [],
@@ -94,7 +158,7 @@
 
             update(players) {
                 const now = Date.now();
-                
+
                 // 更新分数
                 players.forEach(player => {
                     const currentScore = player.snake.length;
@@ -152,10 +216,10 @@
                 const patternCtx = patternCanvas.getContext('2d');
                 patternCanvas.width = this.gridSize * 20;
                 patternCanvas.height = this.gridSize * 20;
-                
+
                 patternCtx.strokeStyle = '#222';
                 patternCtx.lineWidth = 1;
-                
+
                 for (let x = 0; x < patternCanvas.width; x += this.gridSize) {
                     patternCtx.beginPath();
                     patternCtx.moveTo(x, 0);
@@ -174,7 +238,7 @@
 
             render(gameState, camera, viewportBounds) {
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-                
+
                 this.ctx.save();
                 this.ctx.translate(-camera.x, -camera.y);
                 this.ctx.fillStyle = this.gridPattern;
@@ -195,11 +259,11 @@
             renderFoods(foods, bounds) {
                 this.ctx.fillStyle = '#FF0000';
                 this.ctx.beginPath();
-                
+
                 foods.forEach(food => {
                     if (this.isInViewport(food, bounds)) {
-                        this.ctx.moveTo(food.x * this.gridSize + this.gridSize / 2, 
-                                      food.y * this.gridSize + this.gridSize / 2);
+                        this.ctx.moveTo(food.x * this.gridSize + this.gridSize / 2,
+                            food.y * this.gridSize + this.gridSize / 2);
                         this.ctx.arc(
                             food.x * this.gridSize + this.gridSize / 2,
                             food.y * this.gridSize + this.gridSize / 2,
@@ -209,7 +273,7 @@
                         );
                     }
                 });
-                
+
                 this.ctx.fill();
             }
 
@@ -243,7 +307,7 @@
 
             isInViewport(obj, bounds) {
                 return obj.x >= bounds.left && obj.x <= bounds.right &&
-                       obj.y >= bounds.top && obj.y <= bounds.bottom;
+                    obj.y >= bounds.top && obj.y <= bounds.bottom;
             }
 
             isSnakeInViewport(snake, bounds) {
@@ -260,8 +324,14 @@
                 this.currentPlayer = null;
                 this.animationFrameId = null;
                 this.lastFrameTime = performance.now();
-                
+                this.isPlayerDead = false;
+                this.wsHandler = null; // 添加这行
+
                 this.initEventListeners();
+            }
+
+            setWebSocketHandler(wsHandler) {  // 添加这个方法
+                this.wsHandler = wsHandler;
             }
 
             initEventListeners() {
@@ -272,17 +342,33 @@
             update() {
                 this.updateCamera();
                 this.scoreManager.update(gameState.players);
-                
+
                 const viewportBounds = {
                     left: this.camera.x / GRID_SIZE,
                     right: (this.camera.x + this.canvas.width) / GRID_SIZE,
                     top: this.camera.y / GRID_SIZE,
                     bottom: (this.camera.y + this.canvas.height) / GRID_SIZE
                 };
-                
+
                 this.renderer.render(gameState, this.camera, viewportBounds);
+                const player = gameState.players.find(p => p.username === this.currentPlayer);
+
+                if (player) {
+                    // 只有当玩家之前是活着的，现在死了的时候才显示死亡界面
+                    if (player.alive === false && this.isPlayerDead === false) {
+                        this.handlePlayerDeath(player);
+                    } else if (player.alive === true) {
+                        // 如果玩家是活着的，重置死亡状态
+                        this.isPlayerDead = false;
+                    }
+                }
+
+
+                // if (player && !player.alive && !this.isPlayerDead) {
+                //     this.handlePlayerDeath(player);
+                // }
                 this.updateScoreboard();
-                
+
                 const now = performance.now();
                 const delta = now - this.lastFrameTime;
                 this.fps = Math.round(1000 / delta);
@@ -298,10 +384,45 @@
                 }
             }
 
+            handlePlayerDeath(player) {
+                this.isPlayerDead = true;
+
+                // 获取所有玩家的分数并排序
+                const allScores = Array.from(this.scoreManager.scores.entries())
+                    .sort((a, b) => b[1].score - a[1].score);
+
+                // 找到当前玩家的排名
+                let rank = 1;
+                for (let i = 0; i < allScores.length; i++) {
+                    if (allScores[i][0] === player.username) {
+                        rank = i + 1;
+                        break;
+                    }
+                }
+
+                // 更新死亡屏幕信息
+                document.getElementById('finalScore').textContent = player.snake.length;
+                document.getElementById('finalRank').textContent = rank;
+                document.getElementById('deathScreen').style.display = 'flex';
+            }
+
+            retry() {  // 添加这个方法
+                const username = this.currentPlayer;
+                document.getElementById('deathScreen').style.display = 'none';
+                this.isPlayerDead = false;
+
+                // 添加一个小延时
+                setTimeout(() => {
+                    if (this.wsHandler) {
+                        this.wsHandler.joinGame(username);
+                    }
+                }, 100);
+            }
+
             updateScoreboard() {
                 const topScores = this.scoreManager.getTopScores();
                 let html = '<h3>Top 10 Players</h3>';
-                
+
                 topScores.forEach(([username, data], index) => {
                     html += `
                         <div style="margin: 5px 0; ${data.alive ? '' : 'opacity: 0.5;'}">
@@ -394,7 +515,7 @@
 
             isOppositeDirection(newDir) {
                 return (newDir.x === -this.currentDirection.x && newDir.y === 0) ||
-                       (newDir.y === -this.currentDirection.y && newDir.x === 0);
+                    (newDir.y === -this.currentDirection.y && newDir.x === 0);
             }
 
             joinGame(username) {
@@ -403,6 +524,7 @@
                     username
                 }));
                 this.game.currentPlayer = username;
+                document.getElementById('deathScreen').style.display = 'none';
             }
         }
 
@@ -410,6 +532,8 @@
         function initGame() {
             const game = new Game();
             const wsHandler = new WebSocketHandler(game);
+            game.setWebSocketHandler(wsHandler);  // 设置 wsHandler
+            window.gameInstance = game;
 
             // 登录处理
             window.joinGame = () => {
@@ -421,10 +545,18 @@
                     game.start();
                 }
             };
+
+            // 添加重试函数到全局作用域
+            window.retryGame = () => {
+                if (window.gameInstance) {
+                    window.gameInstance.retry();
+                }
+            };
         }
 
         // 启动游戏
         initGame();
     </script>
 </body>
+
 </html>
