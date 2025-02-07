@@ -47,6 +47,10 @@
 游戏页面:
 ![Clipboard_Screenshot_1738898299](https://github.com/user-attachments/assets/c4b8d11e-6979-4d8c-84a3-0adaaa48ba45)
 
+结算页面:
+
+![Clipboard_Screenshot_1738898647](https://github.com/user-attachments/assets/5e4765d3-9b3f-4a74-b2a3-ee5ab88f628c)
+
 
 ## 安装与运行
 
