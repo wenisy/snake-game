@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Snake Battle Royale</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #111;
+            font-family: Arial, sans-serif;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #gameContainer {
+            display: none;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #scoreboard {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 100;
+            min-width: 200px;
+        }
+
+        #scoreboard h3 {
+            margin: 0 0 10px 0;
+            text-align: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 5px;
+        }
+
+        #loginScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: white;
+            z-index: 1000;
+        }
+
+        input, button {
+            margin: 10px;
+            padding: 10px;
+            font-size: 18px;
+        }
+
+        #gameCanvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="loginScreen">
+        <h1>Snake Battle Royale</h1>
+        <input type="text" id="username" placeholder="Enter your username">
+        <button onclick="joinGame()">Join Battle</button>
+    </div>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="scoreboard"></div>
+    </div>
+
+    <script>
+                const BOARD_SIZE = 2552;
+        const GRID_SIZE = 8;
+        let gameState = {
+            players: [],
+            foods: []
+        };
+
+        class ScoreManager {
+            constructor(maxSize = 20) {
+                this.scores = new Map();
+                this.maxSize = maxSize;
+                this.lastCleanup = Date.now();
+                this.cleanupInterval = 10000; // 10秒清理一次
+            }
+
+            update(players) {
+                const now = Date.now();
+                
+                // 更新分数
+                players.forEach(player => {
+                    const currentScore = player.snake.length;
+                    const previousScore = this.scores.get(player.username)?.score || 0;
+                    if (currentScore > previousScore) {
+                        this.scores.set(player.username, {
+                            score: currentScore,
+                            lastSeen: now,
+                            color: player.color,
+                            alive: player.alive
+                        });
+                    } else if (this.scores.has(player.username)) {
+                        // 更新最后见到的时间和状态
+                        const data = this.scores.get(player.username);
+                        data.lastSeen = now;
+                        data.alive = player.alive;
+                    }
+                });
+
+                // 定期清理
+                if (now - this.lastCleanup > this.cleanupInterval) {
+                    this.cleanup(now);
+                    this.lastCleanup = now;
+                }
+            }
+
+            cleanup(now) {
+                // 删除30秒未更新的分数
+                const timeoutThreshold = now - 30000;
+                for (const [username, data] of this.scores) {
+                    if (data.lastSeen < timeoutThreshold) {
+                        this.scores.delete(username);
+                    }
+                }
+            }
+
+            getTopScores(limit = 10) {
+                return Array.from(this.scores.entries())
+                    .sort((a, b) => b[1].score - a[1].score)
+                    .slice(0, limit);
+            }
+        }
+
+        class Renderer {
+            constructor(canvas, gridSize) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.gridSize = gridSize;
+                this.gridPattern = null;
+                this.initGridPattern();
+            }
+
+            initGridPattern() {
+                const patternCanvas = document.createElement('canvas');
+                const patternCtx = patternCanvas.getContext('2d');
+                patternCanvas.width = this.gridSize * 20;
+                patternCanvas.height = this.gridSize * 20;
+                
+                patternCtx.strokeStyle = '#222';
+                patternCtx.lineWidth = 1;
+                
+                for (let x = 0; x < patternCanvas.width; x += this.gridSize) {
+                    patternCtx.beginPath();
+                    patternCtx.moveTo(x, 0);
+                    patternCtx.lineTo(x, patternCanvas.height);
+                    patternCtx.stroke();
+                }
+                for (let y = 0; y < patternCanvas.height; y += this.gridSize) {
+                    patternCtx.beginPath();
+                    patternCtx.moveTo(0, y);
+                    patternCtx.lineTo(patternCanvas.width, y);
+                    patternCtx.stroke();
+                }
+
+                this.gridPattern = this.ctx.createPattern(patternCanvas, 'repeat');
+            }
+
+            render(gameState, camera, viewportBounds) {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                this.ctx.save();
+                this.ctx.translate(-camera.x, -camera.y);
+                this.ctx.fillStyle = this.gridPattern;
+                this.ctx.fillRect(
+                    Math.floor(camera.x / this.gridSize) * this.gridSize,
+                    Math.floor(camera.y / this.gridSize) * this.gridSize,
+                    this.canvas.width + this.gridSize * 2,
+                    this.canvas.height + this.gridSize * 2
+                );
+
+                this.renderFoods(gameState.foods, viewportBounds);
+                this.renderSnakes(gameState.players, viewportBounds);
+
+                this.ctx.restore();
+            }
+
+
+            renderFoods(foods, bounds) {
+                this.ctx.fillStyle = '#FF0000';
+                this.ctx.beginPath();
+                
+                foods.forEach(food => {
+                    if (this.isInViewport(food, bounds)) {
+                        this.ctx.moveTo(food.x * this.gridSize + this.gridSize / 2, 
+                                      food.y * this.gridSize + this.gridSize / 2);
+                        this.ctx.arc(
+                            food.x * this.gridSize + this.gridSize / 2,
+                            food.y * this.gridSize + this.gridSize / 2,
+                            this.gridSize / 2,
+                            0,
+                            Math.PI * 2
+                        );
+                    }
+                });
+                
+                this.ctx.fill();
+            }
+
+            renderSnakes(players, bounds) {
+                players.forEach(player => {
+                    if (!player.alive) return;
+                    if (!this.isSnakeInViewport(player.snake, bounds)) return;
+
+                    // 绘制蛇身
+                    this.ctx.fillStyle = player.color;
+                    player.snake.forEach(segment => {
+                        this.ctx.fillRect(
+                            segment.x * this.gridSize,
+                            segment.y * this.gridSize,
+                            this.gridSize * 5,
+                            this.gridSize * 5
+                        );
+                    });
+
+                    // 绘制名字
+                    this.ctx.fillStyle = 'white';
+                    this.ctx.font = '12px Arial';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText(
+                        player.username,
+                        player.snake[0].x * this.gridSize + (this.gridSize * 5) / 2,
+                        player.snake[0].y * this.gridSize - 5
+                    );
+                });
+            }
+
+            isInViewport(obj, bounds) {
+                return obj.x >= bounds.left && obj.x <= bounds.right &&
+                       obj.y >= bounds.top && obj.y <= bounds.bottom;
+            }
+
+            isSnakeInViewport(snake, bounds) {
+                return snake.some(segment => this.isInViewport(segment, bounds));
+            }
+        }
+
+        class Game {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.scoreManager = new ScoreManager();
+                this.renderer = new Renderer(this.canvas, GRID_SIZE);
+                this.camera = { x: 0, y: 0 };
+                this.currentPlayer = null;
+                this.animationFrameId = null;
+                this.lastFrameTime = performance.now();
+                
+                this.initEventListeners();
+            }
+
+            initEventListeners() {
+                window.addEventListener('resize', () => this.resizeCanvas());
+                window.addEventListener('unload', () => this.cleanup());
+            }
+
+            update() {
+                this.updateCamera();
+                this.scoreManager.update(gameState.players);
+                
+                const viewportBounds = {
+                    left: this.camera.x / GRID_SIZE,
+                    right: (this.camera.x + this.canvas.width) / GRID_SIZE,
+                    top: this.camera.y / GRID_SIZE,
+                    bottom: (this.camera.y + this.canvas.height) / GRID_SIZE
+                };
+                
+                this.renderer.render(gameState, this.camera, viewportBounds);
+                this.updateScoreboard();
+                
+                const now = performance.now();
+                const delta = now - this.lastFrameTime;
+                this.fps = Math.round(1000 / delta);
+                this.lastFrameTime = now;
+            }
+
+            updateCamera() {
+                const player = gameState.players.find(p => p.username === this.currentPlayer);
+                if (player && player.snake.length > 0) {
+                    const head = player.snake[0];
+                    this.camera.x = head.x * GRID_SIZE - this.canvas.width / 2;
+                    this.camera.y = head.y * GRID_SIZE - this.canvas.height / 2;
+                }
+            }
+
+            updateScoreboard() {
+                const topScores = this.scoreManager.getTopScores();
+                let html = '<h3>Top 10 Players</h3>';
+                
+                topScores.forEach(([username, data], index) => {
+                    html += `
+                        <div style="margin: 5px 0; ${data.alive ? '' : 'opacity: 0.5;'}">
+                            <span style="color: gold">#${index + 1}</span> 
+                            <span style="color: ${data.color}">${username}</span>: 
+                            <span>${data.score}</span>
+                            ${data.alive ? '' : ' (Dead)'}
+                        </div>
+                    `;
+                });
+
+                document.getElementById('scoreboard').innerHTML = html;
+            }
+
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+            }
+
+            gameLoop() {
+                this.update();
+                this.animationFrameId = requestAnimationFrame(() => this.gameLoop());
+            }
+
+            cleanup() {
+                if (this.animationFrameId) {
+                    cancelAnimationFrame(this.animationFrameId);
+                }
+            }
+
+            start() {
+                this.resizeCanvas();
+                this.gameLoop();
+            }
+        }
+
+        class WebSocketHandler {
+            constructor(game) {
+                this.game = game;
+                this.ws = new WebSocket(`ws://${window.location.host}`);
+                this.currentDirection = { x: 1, y: 0 };
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                this.ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'gameState') {
+                        gameState = data;
+                    }
+                };
+
+                window.addEventListener('keydown', (e) => this.handleKeyDown(e));
+                window.addEventListener('keyup', (e) => this.handleKeyUp(e));
+            }
+
+            handleKeyDown(e) {
+                let direction = null;
+                switch (e.key) {
+                    case 'ArrowUp': direction = { x: 0, y: -1 }; break;
+                    case 'ArrowDown': direction = { x: 0, y: 1 }; break;
+                    case 'ArrowLeft': direction = { x: -1, y: 0 }; break;
+                    case 'ArrowRight': direction = { x: 1, y: 0 }; break;
+                }
+
+                if (direction && !this.isOppositeDirection(direction)) {
+                    this.currentDirection = direction;
+                    this.ws.send(JSON.stringify({
+                        type: 'direction',
+                        direction
+                    }));
+                }
+
+                if (e.key.startsWith('Arrow') && !e.repeat) {
+                    this.ws.send(JSON.stringify({
+                        type: 'boost',
+                        boost: true
+                    }));
+                }
+            }
+
+            handleKeyUp(e) {
+                if (e.key.startsWith('Arrow')) {
+                    this.ws.send(JSON.stringify({
+                        type: 'boost',
+                        boost: false
+                    }));
+                }
+            }
+
+            isOppositeDirection(newDir) {
+                return (newDir.x === -this.currentDirection.x && newDir.y === 0) ||
+                       (newDir.y === -this.currentDirection.y && newDir.x === 0);
+            }
+
+            joinGame(username) {
+                this.ws.send(JSON.stringify({
+                    type: 'join',
+                    username
+                }));
+                this.game.currentPlayer = username;
+            }
+        }
+
+        // 初始化游戏
+        function initGame() {
+            const game = new Game();
+            const wsHandler = new WebSocketHandler(game);
+
+            // 登录处理
+            window.joinGame = () => {
+                const username = document.getElementById('username').value.trim();
+                if (username) {
+                    document.getElementById('loginScreen').style.display = 'none';
+                    document.getElementById('gameContainer').style.display = 'block';
+                    wsHandler.joinGame(username);
+                    game.start();
+                }
+            };
+        }
+
+        // 启动游戏
+        initGame();
+    </script>
+</body>
+</html>
