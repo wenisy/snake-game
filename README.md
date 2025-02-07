@@ -62,8 +62,8 @@
 ### 克隆仓库
 
 ```
-git clone https://github.com/your-username/snake-battle-royale.git
-cd snake-battle-royale
+git clone https://github.com/wenisy/snake-game.git
+cd snake-game
 ```
 
 ### 安装依赖
