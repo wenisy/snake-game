@@ -139,6 +139,19 @@
             <button onclick="retryGame()">Try Again</button>
         </div>
     </div>
+    <!-- 在body中添加 -->
+    <div id="joystick-container"
+        style="position: fixed; bottom: 50px; right: 50px; width: 150px; height: 150px; background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 1000;">
+        <div id="joystick-knob"
+            style="position: absolute; width: 50px; height: 50px; background: rgba(255,255,255,0.5); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+        </div>
+    </div>
+
+    <!-- 新增加速按钮 -->
+    <div id="boost-button"
+        style="position: fixed; bottom: 50px; left: 50px; width: 80px; height: 80px; background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 1000; display: flex; justify-content: center; align-items: center;">
+        <div style="color: white; font-size: 12px;">BOOST</div>
+    </div>
 
     <script>
         const BOARD_SIZE = 2552;
@@ -465,6 +478,9 @@
                 this.ws = new WebSocket(`ws://${window.location.host}`);
                 this.currentDirection = { x: 1, y: 0 };
                 this.setupEventListeners();
+                this.setupJoystick();
+                this.setupBoostButton();
+                this.isBoostActive = false;
             }
 
             setupEventListeners() {
@@ -477,6 +493,128 @@
 
                 window.addEventListener('keydown', (e) => this.handleKeyDown(e));
                 window.addEventListener('keyup', (e) => this.handleKeyUp(e));
+            }
+
+            setupBoostButton() {
+                const boostButton = document.getElementById('boost-button');
+
+                // 触摸事件
+                const activateBoost = () => {
+                    this.isBoostActive = true;
+                    boostButton.style.background = 'rgba(255,255,255,0.4)';
+                    this.ws.send(JSON.stringify({
+                        type: 'boost',
+                        boost: true
+                    }));
+                };
+
+                const deactivateBoost = () => {
+                    this.isBoostActive = false;
+                    boostButton.style.background = 'rgba(255,255,255,0.2)';
+                    this.ws.send(JSON.stringify({
+                        type: 'boost',
+                        boost: false
+                    }));
+                };
+
+                // 触摸事件
+                boostButton.addEventListener('touchstart', activateBoost);
+                boostButton.addEventListener('touchend', deactivateBoost);
+                boostButton.addEventListener('touchcancel', deactivateBoost);
+
+                // 鼠标事件
+                boostButton.addEventListener('mousedown', activateBoost);
+                boostButton.addEventListener('mouseup', deactivateBoost);
+                boostButton.addEventListener('mouseleave', deactivateBoost);
+
+                // 空格键控制
+                document.addEventListener('keydown', (e) => {
+                    if (e.code === 'Space' && !e.repeat && !this.isBoostActive) {
+                        activateBoost();
+                    }
+                });
+
+                document.addEventListener('keyup', (e) => {
+                    if (e.code === 'Space') {
+                        deactivateBoost();
+                    }
+                });
+            }
+
+            setupJoystick() {
+                const container = document.getElementById('joystick-container');
+                const knob = document.getElementById('joystick-knob');
+                let isDragging = false;
+                let centerX, centerY;
+
+                const updateJoystickPosition = (x, y) => {
+                    const container = document.getElementById('joystick-container');
+                    const rect = container.getBoundingClientRect();
+                    centerX = rect.left + rect.width / 2;
+                    centerY = rect.top + rect.height / 2;
+
+                    const dx = x - centerX;
+                    const dy = y - centerY;
+                    const angle = Math.atan2(dy, dx);
+                    const distance = Math.min(50, Math.sqrt(dx * dx + dy * dy));
+
+                    const knobX = Math.cos(angle) * distance;
+                    const knobY = Math.sin(angle) * distance;
+
+                    knob.style.transform = `translate(${knobX}px, ${knobY}px)`;
+
+                    // 计算方向 (移除了加速相关的代码)
+                    if (distance > 10) {
+                        const direction = {
+                            x: Math.abs(Math.cos(angle)) > 0.5 ? Math.sign(Math.cos(angle)) : 0,
+                            y: Math.abs(Math.sin(angle)) > 0.5 ? Math.sign(Math.sin(angle)) : 0
+                        };
+
+                        if (!this.isOppositeDirection(direction)) {
+                            this.currentDirection = direction;
+                            this.ws.send(JSON.stringify({
+                                type: 'direction',
+                                direction
+                            }));
+                        }
+                    }
+                };
+
+                // 触摸事件
+                container.addEventListener('touchstart', (e) => {
+                    isDragging = true;
+                    updateJoystickPosition(e.touches[0].clientX, e.touches[0].clientY);
+                });
+
+                container.addEventListener('touchmove', (e) => {
+                    if (isDragging) {
+                        e.preventDefault();
+                        updateJoystickPosition(e.touches[0].clientX, e.touches[0].clientY);
+                    }
+                });
+
+                const resetJoystick = () => {
+                    isDragging = false;
+                    knob.style.transform = 'translate(-50%, -50%)';
+                };
+
+                container.addEventListener('touchend', resetJoystick);
+                container.addEventListener('touchcancel', resetJoystick);
+
+                // 鼠标事件（可选）
+                container.addEventListener('mousedown', (e) => {
+                    isDragging = true;
+                    updateJoystickPosition(e.clientX, e.clientY);
+                });
+
+                document.addEventListener('mousemove', (e) => {
+                    if (isDragging) {
+                        updateJoystickPosition(e.clientX, e.clientY);
+                    }
+                });
+
+
+                document.addEventListener('mouseup', resetJoystick);
             }
 
             handleKeyDown(e) {
@@ -493,22 +631,6 @@
                     this.ws.send(JSON.stringify({
                         type: 'direction',
                         direction
-                    }));
-                }
-
-                if (e.key.startsWith('Arrow') && !e.repeat) {
-                    this.ws.send(JSON.stringify({
-                        type: 'boost',
-                        boost: true
-                    }));
-                }
-            }
-
-            handleKeyUp(e) {
-                if (e.key.startsWith('Arrow')) {
-                    this.ws.send(JSON.stringify({
-                        type: 'boost',
-                        boost: false
                     }));
                 }
             }
