@@ -20,6 +20,7 @@ const COLORS = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF'
 let eatenFoodCounter = 0;
 const INITIAL_FOOD_COUNT = 1500; // 原来是50,现在增加到150
 const INITIAL_NPC_COUNTS = 10;
+const GENERATE_FOOD = 1; // 每吃掉3个食物, 屏幕恢复1个食物
 
 
 let players = new Map(); // WebSocket -> Player data
@@ -303,7 +304,7 @@ function handleCollisions(snakeEntity) {
             eatenFoodCounter++;
             if (eatenFoodCounter >= 3) {
                 eatenFoodCounter = 0;
-                generateFood(2);
+                generateFood(GENERATE_FOOD);
             }
         }
     });
