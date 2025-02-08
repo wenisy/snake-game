@@ -2,6 +2,7 @@
 <html>
 
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Snake Battle Royale</title>
     <style>
         body {
@@ -116,10 +117,49 @@
         #deathScreen button:hover {
             background: #45a049;
         }
+
+        #scoreboard {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 100;
+            min-width: 150px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+
+        #joystick-container,
+        #boost-button {
+            position: fixed !important;
+            z-index: 1001 !important;
+            /* 确保控制元素始终在最上层 */
+        }
+
+        /* 添加移动设备适配样式 */
+        @media (max-width: 768px) {
+            #scoreboard {
+                top: 10px;
+                right: 50%;
+                transform: translateX(50%);
+                font-size: 10px;
+                min-width: 120px;
+                max-height: 150px;
+                opacity: 0.8;
+            }
+        }
     </style>
 </head>
 
 <body>
+    <div id="orientation-message">
+        请横屏使用以获得最佳游戏体验
+    </div>
     <div id="loginScreen">
         <h1>Snake Battle Royale</h1>
         <input type="text" id="username" placeholder="Enter your username">
@@ -141,7 +181,7 @@
     </div>
     <!-- 在body中添加 -->
     <div id="joystick-container"
-        style="position: fixed; bottom: 50px; right: 50px; width: 150px; height: 150px; background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 1000;">
+        style="position: fixed; bottom: 50px; left: 50px; width: 150px; height: 150px; background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 1000;">
         <div id="joystick-knob"
             style="position: absolute; width: 50px; height: 50px; background: rgba(255,255,255,0.5); border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%);">
         </div>
@@ -149,7 +189,7 @@
 
     <!-- 新增加速按钮 -->
     <div id="boost-button"
-        style="position: fixed; bottom: 50px; left: 50px; width: 80px; height: 80px; background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 1000; display: flex; justify-content: center; align-items: center;">
+        style="position: fixed; bottom: 50px; right: 50px; width: 80px; height: 80px; background: rgba(255,255,255,0.2); border-radius: 50%; z-index: 1000; display: flex; justify-content: center; align-items: center;">
         <div style="color: white; font-size: 12px;">BOOST</div>
     </div>
 
@@ -250,22 +290,39 @@
             }
 
             render(gameState, camera, viewportBounds) {
+                const scale = window.gameInstance.scale;
+
                 this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
                 this.ctx.save();
-                this.ctx.translate(-camera.x, -camera.y);
+
+                this.ctx.scale(scale, scale);
+
+                this.ctx.translate(
+                    -camera.x / scale,
+                    -camera.y / scale
+                );
+
                 this.ctx.fillStyle = this.gridPattern;
                 this.ctx.fillRect(
                     Math.floor(camera.x / this.gridSize) * this.gridSize,
                     Math.floor(camera.y / this.gridSize) * this.gridSize,
-                    this.canvas.width + this.gridSize * 2,
-                    this.canvas.height + this.gridSize * 2
+                    this.canvas.width / scale + this.gridSize * 2,
+                    this.canvas.height / scale + this.gridSize * 2
                 );
 
                 this.renderFoods(gameState.foods, viewportBounds);
                 this.renderSnakes(gameState.players, viewportBounds);
 
                 this.ctx.restore();
+            }
+
+            isInViewport(obj, bounds) {
+                const scale = window.gameInstance.scale;
+                return obj.x >= bounds.left / scale &&
+                    obj.x <= bounds.right / scale &&
+                    obj.y >= bounds.top / scale &&
+                    obj.y <= bounds.bottom / scale;
             }
 
 
@@ -338,10 +395,35 @@
                 this.animationFrameId = null;
                 this.lastFrameTime = performance.now();
                 this.isPlayerDead = false;
-                this.wsHandler = null; // 添加这行
+                this.wsHandler = null;
+                this.scale = this.calculateScale(); // 新增这行
 
                 this.initEventListeners();
             }
+
+            calculateScale() {
+                const isMobile = window.innerWidth <= 768;
+                if (isMobile) {
+                    return Math.min(window.innerWidth / 1024, 0.5);
+                }
+                return 1;
+            }
+
+            updateCamera() {
+                const player = gameState.players.find(p => p.username === this.currentPlayer);
+                if (player && player.snake.length > 0) {
+                    const head = player.snake[0];
+                    this.camera.x = head.x * GRID_SIZE - (this.canvas.width / this.scale) / 2;
+                    this.camera.y = head.y * GRID_SIZE - (this.canvas.height / this.scale) / 2;
+                }
+            }
+
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.scale = this.calculateScale(); // 新增这行
+            }
+
 
             setWebSocketHandler(wsHandler) {  // 添加这个方法
                 this.wsHandler = wsHandler;
@@ -386,15 +468,6 @@
                 const delta = now - this.lastFrameTime;
                 this.fps = Math.round(1000 / delta);
                 this.lastFrameTime = now;
-            }
-
-            updateCamera() {
-                const player = gameState.players.find(p => p.username === this.currentPlayer);
-                if (player && player.snake.length > 0) {
-                    const head = player.snake[0];
-                    this.camera.x = head.x * GRID_SIZE - this.canvas.width / 2;
-                    this.camera.y = head.y * GRID_SIZE - this.canvas.height / 2;
-                }
             }
 
             handlePlayerDeath(player) {
@@ -450,10 +523,6 @@
                 document.getElementById('scoreboard').innerHTML = html;
             }
 
-            resizeCanvas() {
-                this.canvas.width = window.innerWidth;
-                this.canvas.height = window.innerHeight;
-            }
 
             gameLoop() {
                 this.update();
