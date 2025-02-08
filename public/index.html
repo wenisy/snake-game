@@ -3,6 +3,10 @@
 
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- 添加这些新的 meta 标签 -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Snake Battle Royale</title>
     <style>
         body {
@@ -538,6 +542,25 @@
             start() {
                 this.resizeCanvas();
                 this.gameLoop();
+
+                // 添加全屏请求
+                const requestFullscreen = () => {
+                    const element = document.documentElement;
+                    if (element.requestFullscreen) {
+                        element.requestFullscreen();
+                    } else if (element.webkitRequestFullscreen) {
+                        element.webkitRequestFullscreen();
+                    } else if (element.mozRequestFullScreen) {
+                        element.mozRequestFullScreen();
+                    } else if (element.msRequestFullscreen) {
+                        element.msRequestFullscreen();
+                    }
+                };
+
+                // 监听触摸事件来触发全屏
+                document.addEventListener('touchstart', function () {
+                    requestFullscreen();
+                }, { once: true });
             }
         }
 
