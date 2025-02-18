@@ -21,12 +21,11 @@ let eatenFoodCounter = 0;
 const INITIAL_FOOD_COUNT = 1500; // 原来是50,现在增加到150
 const INITIAL_NPC_COUNTS = 10;
 const GENERATE_FOOD = 1; // 每吃掉3个食物, 屏幕恢复1个食物
-
+const SUPER_FOOD_PROBABILITY = 0.01; // 1%的概率生成超级食物
+const INVINCIBLE_DURATION = 10000; // 无敌模式持续10秒
 
 let players = new Map(); // WebSocket -> Player data
 let foods = new Set();
-
-
 
 class NPCAI {
     constructor(username, level) {
@@ -220,7 +219,9 @@ class Player {
         this.snake = this.generateInitialSnake();
         this.direction = { x: 1, y: 0 };
         this.alive = true;
-        this.speedFactor = 1; // 新增：速度因子，默认为 1
+        this.speedFactor = 1;
+        this.isInvincible = false;
+        this.invincibleEndTime = 0;
     }
 
     generateInitialSnake() {
@@ -234,16 +235,25 @@ class Player {
     }
 }
 
-// 修改generateFood函数,确保食物在合理范围内生成
+// 在全局变量区域添加
+const MIN_SUPER_FOOD_INTERVAL = 15000; // 最小间隔15秒
+const MAX_SUPER_FOOD_INTERVAL = 30000; // 最大间隔30秒
+let nextSuperFoodTime = Date.now() + Math.random() * (MAX_SUPER_FOOD_INTERVAL - MIN_SUPER_FOOD_INTERVAL) + MIN_SUPER_FOOD_INTERVAL;
+let superFoodCountdown = null;
+let superFoodPosition = null;
+let nextSuperFoodPosition = null; // 新增：预定的超级食物位置
+
+// 修改generateFood函数
 function generateFood(amount = 1) {
     for (let i = 0; i < amount; i++) {
-        // 生成新食物时检查是否已经存在相同位置的食物
         let newFood;
         do {
             newFood = {
                 x: Math.floor(Math.random() * (BOARD_SIZE / GRID_SIZE)),
                 y: Math.floor(Math.random() * (BOARD_SIZE / GRID_SIZE)),
-                id: Math.random().toString(36).substring(7)
+                id: Math.random().toString(36).substring(7),
+                isSuper: false, // 超级食物不再随机生成
+                emoji: null
             };
         } while (Array.from(foods).some(food => 
             food.x === newFood.x && food.y === newFood.y
@@ -251,6 +261,27 @@ function generateFood(amount = 1) {
         
         foods.add(newFood);
     }
+}
+
+// 修改generateSuperFood函数
+function generateSuperFood() {
+    // 使用预定位置生成超级食物
+    const newSuperFood = {
+        x: nextSuperFoodPosition.x,
+        y: nextSuperFoodPosition.y,
+        id: Math.random().toString(36).substring(7),
+        isSuper: true,
+        emoji: '🐻'
+    };
+    
+    foods.add(newSuperFood);
+    superFoodPosition = nextSuperFoodPosition;
+    nextSuperFoodPosition = null;
+    
+    // 设置下一次生成时间
+    nextSuperFoodTime = Date.now() + 
+        Math.random() * (MAX_SUPER_FOOD_INTERVAL - MIN_SUPER_FOOD_INTERVAL) + 
+        MIN_SUPER_FOOD_INTERVAL;
 }
 
 // Initialize some food
@@ -274,13 +305,16 @@ function broadcastGameState() {
             color: player.color,
             snake: player.snake,
             alive: player.alive,
-            level: player.level || null
+            level: player.level || null,
+            isInvincible: player.isInvincible || false // 添加无敌状态
         }));
 
     const gameState = {
         type: 'gameState',
         players: relevantPlayers,
-        foods: Array.from(foods)
+        foods: Array.from(foods),
+        superFoodCountdown,
+        superFoodPosition
     };
 
     const message = JSON.stringify(gameState);
@@ -303,14 +337,34 @@ function handleCollisions(snakeEntity) {
     const headRight  = headLeft + GRID_SIZE * 5;
     const headBottom = headTop  + GRID_SIZE * 5;
 
+    // 检查无敌状态是否过期
+    if (snakeEntity.isInvincible && Date.now() > snakeEntity.invincibleEndTime) {
+        snakeEntity.isInvincible = false;
+    }
+
     // 食物碰撞检测
     foods.forEach(food => {
         const foodCenterX = food.x * GRID_SIZE + GRID_SIZE / 2;
         const foodCenterY = food.y * GRID_SIZE + GRID_SIZE / 2;
-        if (foodCenterX >= headLeft && foodCenterX <= headRight &&
-            foodCenterY >= headTop && foodCenterY <= headBottom) {
+        
+        // 如果是无敌状态，增加食物检测范围
+        const detectionRange = snakeEntity.isInvincible ? 2 : 1;
+        const effectiveLeft = headLeft - (GRID_SIZE * 5 * (detectionRange - 1));
+        const effectiveRight = headRight + (GRID_SIZE * 5 * (detectionRange - 1));
+        const effectiveTop = headTop - (GRID_SIZE * 5 * (detectionRange - 1));
+        const effectiveBottom = headBottom + (GRID_SIZE * 5 * (detectionRange - 1));
+
+        if (foodCenterX >= effectiveLeft && foodCenterX <= effectiveRight &&
+            foodCenterY >= effectiveTop && foodCenterY <= effectiveBottom) {
             foods.delete(food);
             snakeEntity.snake.push({ ...snakeEntity.snake[snakeEntity.snake.length - 1] });
+            
+            // 如果吃到超级食物，激活无敌模式
+            if (food.isSuper) {
+                snakeEntity.isInvincible = true;
+                snakeEntity.invincibleEndTime = Date.now() + INVINCIBLE_DURATION;
+            }
+            
             eatenFoodCounter++;
             if (eatenFoodCounter >= 3) {
                 eatenFoodCounter = 0;
@@ -328,22 +382,47 @@ function handleCollisions(snakeEntity) {
     allEntities.forEach(other => {
         if (other === snakeEntity || !other.alive) return;
 
-        // 头对头碰撞：双方死亡
+        // 如果双方都是无敌状态，则互不影响
+        if (snakeEntity.isInvincible && other.isInvincible) {
+            return;
+        }
+
+        // 如果当前蛇处于无敌状态，则碰到其他蛇时会导致其他蛇死亡
+        if (snakeEntity.isInvincible) {
+            // 检查是否与其他蛇的任何部分发生碰撞
+            for (const segment of other.snake) {
+                if (Math.abs(head.x - segment.x) <= 1 && Math.abs(head.y - segment.y) <= 1) {
+                    other.alive = false;
+                    convertSnakeToFood(other.snake);
+                    return;
+                }
+            }
+            return;
+        }
+
+        // 头对头碰撞：如果对方无敌，则当前蛇死亡；如果都不无敌，则双方死亡
         if (head.x === other.snake[0].x && head.y === other.snake[0].y) {
-            snakeEntity.alive = false;
-            other.alive = false;
-            convertSnakeToFood(snakeEntity.snake);
-            convertSnakeToFood(other.snake);
-            return; // 已经死亡，不需要继续检测
+            if (other.isInvincible) {
+                snakeEntity.alive = false;
+                convertSnakeToFood(snakeEntity.snake);
+            } else if (!snakeEntity.isInvincible) {
+                snakeEntity.alive = false;
+                other.alive = false;
+                convertSnakeToFood(snakeEntity.snake);
+                convertSnakeToFood(other.snake);
+            }
+            return;
         }
 
         // 蛇头碰撞到其它蛇身体
         for (let i = 1; i < other.snake.length; i++) {
             const segment = other.snake[i];
             if (head.x === segment.x && head.y === segment.y) {
-                snakeEntity.alive = false;
-                convertSnakeToFood(snakeEntity.snake);
-                return; // 已经死亡，不需要继续检测
+                if (!snakeEntity.isInvincible) {
+                    snakeEntity.alive = false;
+                    convertSnakeToFood(snakeEntity.snake);
+                }
+                return;
             }
         }
     });
@@ -364,6 +443,25 @@ function convertSnakeToFood(snake) {
 }
 
 function updateGame() {
+    const currentTime = Date.now();
+    
+    // 处理超级食物的生成
+    if (currentTime >= nextSuperFoodTime) {
+        // 预先确定位置
+        nextSuperFoodPosition = {
+            x: Math.floor(Math.random() * (BOARD_SIZE / GRID_SIZE)),
+            y: Math.floor(Math.random() * (BOARD_SIZE / GRID_SIZE))
+        };
+        superFoodPosition = nextSuperFoodPosition; // 立即更新位置以供指示器使用
+        superFoodCountdown = 5; // 5秒倒计时
+        // 5秒后生成超级食物
+        setTimeout(() => {
+            generateSuperFood();
+            superFoodCountdown = null;
+        }, 5000);
+        nextSuperFoodTime = Infinity; // 防止重复触发
+    }
+    
     // 处理真实玩家
     players.forEach(player => {
         if (!player.alive) return;

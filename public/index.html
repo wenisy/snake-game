@@ -217,6 +217,7 @@
                 this.gridSize = gridSize;
                 this.gridPattern = null;
                 this.initGridPattern();
+                this.invincibleGlowTime = 0;
             }
 
             initGridPattern() {
@@ -258,6 +259,7 @@
                     -camera.y / scale
                 );
 
+                // 先绘制网格
                 this.ctx.fillStyle = this.gridPattern;
                 this.ctx.fillRect(
                     Math.floor(camera.x / this.gridSize) * this.gridSize,
@@ -266,8 +268,21 @@
                     this.canvas.height / scale + this.gridSize * 2
                 );
 
+                // 在食物和蛇之前渲染方向指示器
+                if (gameState.superFoodPosition) {
+                    const superFood = Array.from(gameState.foods).find(f => f.isSuper);
+                    if (superFood || gameState.superFoodCountdown !== null) {
+                        this.renderSuperFoodIndicator(gameState.superFoodPosition, camera);
+                    }
+                }
+
                 this.renderFoods(gameState.foods, viewportBounds);
                 this.renderSnakes(gameState.players, viewportBounds);
+
+                // 渲染倒计时（如果有）
+                if (gameState.superFoodCountdown !== null) {
+                    this.renderSuperFoodCountdown(gameState.superFoodCountdown);
+                }
 
                 this.ctx.restore();
             }
@@ -282,36 +297,94 @@
 
 
             renderFoods(foods, bounds) {
-                this.ctx.fillStyle = '#FF0000';
-                this.ctx.beginPath();
-
                 foods.forEach(food => {
                     if (this.isInViewport(food, bounds)) {
-                        this.ctx.moveTo(food.x * this.gridSize + this.gridSize / 2,
-                            food.y * this.gridSize + this.gridSize / 2);
-                        this.ctx.arc(
-                            food.x * this.gridSize + this.gridSize / 2,
-                            food.y * this.gridSize + this.gridSize / 2,
-                            this.gridSize / 2,
-                            0,
-                            Math.PI * 2
-                        );
+                        if (food.isSuper) {
+                            // 渲染超级食物（熊emoji）
+                            this.ctx.font = `${this.gridSize * 5}px Arial`;
+                            this.ctx.textAlign = 'center';
+                            this.ctx.textBaseline = 'middle';
+                            this.ctx.fillText(
+                                '🐻',
+                                food.x * this.gridSize + this.gridSize * 2.5,
+                                food.y * this.gridSize + this.gridSize * 2.5
+                            );
+                        } else {
+                            // 渲染普通食物
+                            this.ctx.fillStyle = '#FF0000';
+                            this.ctx.beginPath();
+                            this.ctx.arc(
+                                food.x * this.gridSize + this.gridSize / 2,
+                                food.y * this.gridSize + this.gridSize / 2,
+                                this.gridSize / 2,
+                                0,
+                                Math.PI * 2
+                            );
+                            this.ctx.fill();
+                        }
                     }
                 });
-
-                this.ctx.fill();
             }
 
             renderSnakes(players, bounds) {
+                this.invincibleGlowTime += 0.1;
+                
                 players.forEach(player => {
                     if (!player.alive) return;
                     if (!this.isSnakeInViewport(player.snake, bounds)) return;
+
+                    // 如果蛇处于无敌状态，添加金色光环效果
+                    if (player.isInvincible) {
+                        const glowIntensity = Math.sin(this.invincibleGlowTime) * 0.3 + 0.7; // 0.4 到 1.0 之间闪烁
+                        this.ctx.shadowColor = `rgba(255, 215, 0, ${glowIntensity})`;
+                        this.ctx.shadowBlur = 30; // 增加光晕效果
+                        this.ctx.strokeStyle = `rgba(255, 215, 0, ${glowIntensity})`;
+                        this.ctx.lineWidth = 4; // 加粗光环
+                        
+                        // 为蛇的每个部分添加光环
+                        player.snake.forEach(segment => {
+                            // 外部金色光环
+                            this.ctx.beginPath();
+                            this.ctx.rect(
+                                segment.x * this.gridSize - 4,
+                                segment.y * this.gridSize - 4,
+                                this.gridSize * 5 + 8,
+                                this.gridSize * 5 + 8
+                            );
+                            this.ctx.stroke();
+
+                            // 添加星星效果
+                            const starSize = this.gridSize * 1.5;
+                            this.ctx.fillStyle = `rgba(255, 255, 0, ${glowIntensity * 0.5})`;
+                            this.ctx.beginPath();
+                            const centerX = segment.x * this.gridSize + this.gridSize * 2.5;
+                            const centerY = segment.y * this.gridSize + this.gridSize * 2.5;
+                            for (let i = 0; i < 5; i++) {
+                                const angle = (i * 2 * Math.PI / 5) + this.invincibleGlowTime;
+                                const x = centerX + Math.cos(angle) * starSize;
+                                const y = centerY + Math.sin(angle) * starSize;
+                                if (i === 0) {
+                                    this.ctx.moveTo(x, y);
+                                } else {
+                                    this.ctx.lineTo(x, y);
+                                }
+                            }
+                            this.ctx.closePath();
+                            this.ctx.fill();
+                        });
+                    }
+
+                    // 重置阴影效果
+                    this.ctx.shadowColor = 'transparent';
+                    this.ctx.shadowBlur = 0;
 
                     // 绘制蛇身
                     player.snake.forEach((segment, index) => {
                         if (index === 0) {
                             // 绘制蛇头底色
-                            this.ctx.fillStyle = player.color;
+                            this.ctx.fillStyle = player.isInvincible ? 
+                                `hsl(${(this.invincibleGlowTime * 50) % 360}, 100%, 50%)` : // 彩虹效果
+                                player.color;
                             this.ctx.fillRect(
                                 segment.x * this.gridSize,
                                 segment.y * this.gridSize,
@@ -404,10 +477,10 @@
 
                     // 绘制名字
                     this.ctx.fillStyle = 'white';
-                    this.ctx.font = '12px Arial';
+                    this.ctx.font = player.isInvincible ? 'bold 14px Arial' : '12px Arial';
                     this.ctx.textAlign = 'center';
                     this.ctx.fillText(
-                        player.username,
+                        `${player.username}${player.isInvincible ? ' 👑' : ''}`,
                         player.snake[0].x * this.gridSize + (this.gridSize * 5) / 2,
                         player.snake[0].y * this.gridSize - 5
                     );
@@ -432,6 +505,95 @@
                     x: Math.sign(head.x - neck.x),
                     y: Math.sign(head.y - neck.y)
                 };
+            }
+
+            // 添加新的方法来渲染倒计时
+            renderSuperFoodCountdown(countdown) {
+                // 保存当前转换状态
+                this.ctx.save();
+                
+                // 重置转换以在屏幕中心绘制
+                this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+                
+                // 设置文本样式
+                this.ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
+                this.ctx.font = 'bold 48px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                
+                // 在屏幕中央显示倒计时
+                const text = `超级食物即将出现: ${countdown}秒!`;
+                this.ctx.fillText(text, this.canvas.width / 2, this.canvas.height / 3);
+                
+                // 恢复转换状态
+                this.ctx.restore();
+            }
+
+            // 修改方向指示器渲染方法
+            renderSuperFoodIndicator(superFoodPos, camera) {
+                const currentPlayer = gameState.players.find(p => p.username === window.gameInstance.currentPlayer);
+                if (!currentPlayer || !currentPlayer.snake.length) return;
+
+                const head = currentPlayer.snake[0];
+                const dx = superFoodPos.x - head.x;
+                const dy = superFoodPos.y - head.y;
+                const angle = Math.atan2(dy, dx);
+
+                // 在蛇头前方绘制一系列箭头
+                const arrowSpacing = this.gridSize * 5; // 箭头间距
+                const numArrows = 3; // 显示3个箭头
+                const arrowSize = this.gridSize * 7; // 箭头大小
+                const baseDistance = this.gridSize * 2; // 第一个箭头距离蛇头的距离
+
+                for (let i = 0; i < numArrows; i++) {
+                    const distance = baseDistance + i * arrowSpacing;
+                    const headCenterX = head.x * this.gridSize + this.gridSize * 2.5;
+                    const headCenterY = head.y * this.gridSize + this.gridSize * 2.5;
+                    const arrowX = headCenterX + Math.cos(angle) * distance;
+                    const arrowY = headCenterY + Math.sin(angle) * distance;
+
+                    this.ctx.save();
+                    this.ctx.translate(arrowX, arrowY);
+                    this.ctx.rotate(angle);
+
+                    // 绘制类似马路箭头的形状
+                    this.ctx.fillStyle = `rgba(255, 215, 0, ${0.15 - i * 0.03})`; // 越远越淡
+                    this.ctx.beginPath();
+                    
+                    // 绘制箭头形状（更扁平，更像马路箭头）
+                    const width = arrowSize * 0.4;
+                    const length = arrowSize * 0.8;
+                    const headLength = arrowSize * 0.3;
+                    
+                    // 箭头主体
+                    this.ctx.moveTo(-length/2, -width/2);
+                    this.ctx.lineTo(length/2 - headLength, -width/2);
+                    this.ctx.lineTo(length/2 - headLength, -width);
+                    this.ctx.lineTo(length/2, 0);
+                    this.ctx.lineTo(length/2 - headLength, width);
+                    this.ctx.lineTo(length/2 - headLength, width/2);
+                    this.ctx.lineTo(-length/2, width/2);
+                    this.ctx.closePath();
+                    this.ctx.fill();
+
+                    this.ctx.restore();
+                }
+
+                // 在最后一个箭头位置显示距离
+                const lastArrowDistance = baseDistance + (numArrows - 1) * arrowSpacing;
+                const textX = head.x * this.gridSize + this.gridSize * 2.5 + Math.cos(angle) * lastArrowDistance;
+                const textY = head.y * this.gridSize + this.gridSize * 2.5 + Math.sin(angle) * lastArrowDistance;
+                
+                this.ctx.save();
+                this.ctx.translate(textX, textY);
+                this.ctx.rotate(angle);
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                this.ctx.font = `${this.gridSize * 1.5}px Arial`;
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                const distance = Math.round(Math.sqrt(dx * dx + dy * dy));
+                this.ctx.fillText(`${distance}`, 0, -this.gridSize * 2);
+                this.ctx.restore();
             }
         }
 
