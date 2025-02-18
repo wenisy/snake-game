@@ -162,7 +162,7 @@ let npcs = [];
 // 例如生成3个 NPC
 function spawnNPCs(count = 3) {
     for (let i = 0; i < count; i++) {
-        // NPC 名字可以为 “NPC_1”, “NPC_2”...
+        // NPC 名字可以为 "NPC_1", "NPC_2"...
         const name = `NPC_${i + 1}`;
         // 随机设定等级 1～10
         const level = Math.floor(Math.random() * 10) + 1;
@@ -190,8 +190,17 @@ function checkAndRespawnNPCs() {
     const aliveNPCs = npcs.filter(npc => npc.alive).length;
     if (aliveNPCs < INITIAL_NPC_COUNTS) {
         const respawnCount = INITIAL_NPC_COUNTS - aliveNPCs;
-        npcs = npcs.filter(npc => npc.alive);
         
+        // 获取前20名的用户名集合
+        const topScores = [...players.values(), ...npcs]
+            .sort((a, b) => b.snake.length - a.snake.length)
+            .slice(0, MAX_HISTORY_SCORES)
+            .map(p => p.username);
+
+        // 保留活着的NPC和排行榜上的死亡NPC
+        npcs = npcs.filter(npc => npc.alive || topScores.includes(npc.username));
+        
+        // 添加新的NPC
         for (let i = 0; i < respawnCount; i++) {
             const name = `NPC_${Math.floor(Math.random() * 1000)}`;
             const level = Math.floor(Math.random() * 10) + 1;
@@ -249,7 +258,7 @@ generateFood(INITIAL_FOOD_COUNT);
 
 // 在服务端的broadcastGameState函数中
 function broadcastGameState() {
-    // 只发送活着的玩家和排行榜上的死亡玩家数据
+    // 获取前20名玩家的用户名集合
     const topScores = new Set(
         [...players.values(), ...npcs]
             .sort((a, b) => b.snake.length - a.snake.length)
@@ -257,6 +266,7 @@ function broadcastGameState() {
             .map(p => p.username)
     );
 
+    // 发送活着的玩家和排行榜上的死亡玩家数据
     const relevantPlayers = [...players.values(), ...npcs]
         .filter(p => p.alive || topScores.has(p.username))
         .map(player => ({
@@ -411,6 +421,16 @@ wss.on('connection', (ws) => {
             switch (data.type) {
                 case 'join':
                     console.log(`Player joined: ${data.username}`);
+                    // 删除该玩家之前的所有数据
+                    players.forEach((player, playerWs) => {
+                        if (player.username === data.username) {
+                            players.delete(playerWs);
+                        }
+                    });
+                    // 从NPC中也删除同名玩家（如果有的话）
+                    npcs = npcs.filter(npc => npc.username !== data.username);
+                    
+                    // 创建新玩家
                     players.set(ws, new Player(ws, data.username));
                     break;
 

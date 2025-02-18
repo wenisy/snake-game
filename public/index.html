@@ -210,60 +210,6 @@
             foods: []
         };
 
-        class ScoreManager {
-            constructor(maxSize = 20) {
-                this.scores = new Map();
-                this.maxSize = maxSize;
-                this.lastCleanup = Date.now();
-                this.cleanupInterval = 10000; // 10秒清理一次
-            }
-
-            update(players) {
-                const now = Date.now();
-
-                // 更新分数
-                players.forEach(player => {
-                    const currentScore = player.snake.length;
-                    const previousScore = this.scores.get(player.username)?.score || 0;
-                    if (currentScore > previousScore) {
-                        this.scores.set(player.username, {
-                            score: currentScore,
-                            lastSeen: now,
-                            color: player.color,
-                            alive: player.alive
-                        });
-                    } else if (this.scores.has(player.username)) {
-                        // 更新最后见到的时间和状态
-                        const data = this.scores.get(player.username);
-                        data.lastSeen = now;
-                        data.alive = player.alive;
-                    }
-                });
-
-                // 定期清理
-                if (now - this.lastCleanup > this.cleanupInterval) {
-                    this.cleanup(now);
-                    this.lastCleanup = now;
-                }
-            }
-
-            cleanup(now) {
-                // 删除30秒未更新的分数
-                const timeoutThreshold = now - 30000;
-                for (const [username, data] of this.scores) {
-                    if (data.lastSeen < timeoutThreshold) {
-                        this.scores.delete(username);
-                    }
-                }
-            }
-
-            getTopScores(limit = 10) {
-                return Array.from(this.scores.entries())
-                    .sort((a, b) => b[1].score - a[1].score)
-                    .slice(0, limit);
-            }
-        }
-
         class Renderer {
             constructor(canvas, gridSize) {
                 this.canvas = canvas;
@@ -362,14 +308,98 @@
                     if (!this.isSnakeInViewport(player.snake, bounds)) return;
 
                     // 绘制蛇身
-                    this.ctx.fillStyle = player.color;
-                    player.snake.forEach(segment => {
-                        this.ctx.fillRect(
-                            segment.x * this.gridSize,
-                            segment.y * this.gridSize,
-                            this.gridSize * 5,
-                            this.gridSize * 5
-                        );
+                    player.snake.forEach((segment, index) => {
+                        if (index === 0) {
+                            // 绘制蛇头底色
+                            this.ctx.fillStyle = player.color;
+                            this.ctx.fillRect(
+                                segment.x * this.gridSize,
+                                segment.y * this.gridSize,
+                                this.gridSize * 5,
+                                this.gridSize * 5
+                            );
+
+                            // 获取移动方向
+                            const direction = this.getSnakeDirection(player.snake);
+
+                            // 添加蛇头分隔线
+                            this.ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
+                            this.ctx.lineWidth = 2;
+                            this.ctx.beginPath();
+                            
+                            // 根据移动方向确定分隔线位置
+                            if (direction.x > 0) { // 向右移动
+                                this.ctx.moveTo(segment.x * this.gridSize + this.gridSize, segment.y * this.gridSize);
+                                this.ctx.lineTo(segment.x * this.gridSize + this.gridSize, segment.y * this.gridSize + this.gridSize * 5);
+                            } else if (direction.x < 0) { // 向左移动
+                                this.ctx.moveTo(segment.x * this.gridSize + this.gridSize * 4, segment.y * this.gridSize);
+                                this.ctx.lineTo(segment.x * this.gridSize + this.gridSize * 4, segment.y * this.gridSize + this.gridSize * 5);
+                            } else if (direction.y > 0) { // 向下移动
+                                this.ctx.moveTo(segment.x * this.gridSize, segment.y * this.gridSize + this.gridSize);
+                                this.ctx.lineTo(segment.x * this.gridSize + this.gridSize * 5, segment.y * this.gridSize + this.gridSize);
+                            } else { // 向上移动
+                                this.ctx.moveTo(segment.x * this.gridSize, segment.y * this.gridSize + this.gridSize * 4);
+                                this.ctx.lineTo(segment.x * this.gridSize + this.gridSize * 5, segment.y * this.gridSize + this.gridSize * 4);
+                            }
+                            this.ctx.stroke();
+
+                            // 添加眼睛
+                            this.ctx.fillStyle = 'white';
+                            if (direction.x !== 0) { // 水平移动
+                                const eyeX = direction.x > 0 ? segment.x * this.gridSize + this.gridSize * 3.5 : segment.x * this.gridSize + this.gridSize * 1.5;
+                                // 上眼
+                                this.ctx.beginPath();
+                                this.ctx.arc(eyeX, segment.y * this.gridSize + this.gridSize * 1.5, this.gridSize * 0.8, 0, Math.PI * 2);
+                                this.ctx.fill();
+                                // 下眼
+                                this.ctx.beginPath();
+                                this.ctx.arc(eyeX, segment.y * this.gridSize + this.gridSize * 3.5, this.gridSize * 0.8, 0, Math.PI * 2);
+                                this.ctx.fill();
+                            } else { // 垂直移动
+                                const eyeY = direction.y > 0 ? segment.y * this.gridSize + this.gridSize * 3.5 : segment.y * this.gridSize + this.gridSize * 1.5;
+                                // 左眼
+                                this.ctx.beginPath();
+                                this.ctx.arc(segment.x * this.gridSize + this.gridSize * 1.5, eyeY, this.gridSize * 0.8, 0, Math.PI * 2);
+                                this.ctx.fill();
+                                // 右眼
+                                this.ctx.beginPath();
+                                this.ctx.arc(segment.x * this.gridSize + this.gridSize * 3.5, eyeY, this.gridSize * 0.8, 0, Math.PI * 2);
+                                this.ctx.fill();
+                            }
+
+                            // 添加瞳孔
+                            this.ctx.fillStyle = 'black';
+                            if (direction.x !== 0) { // 水平移动
+                                const eyeX = direction.x > 0 ? segment.x * this.gridSize + this.gridSize * 3.7 : segment.x * this.gridSize + this.gridSize * 1.3;
+                                // 上瞳孔
+                                this.ctx.beginPath();
+                                this.ctx.arc(eyeX, segment.y * this.gridSize + this.gridSize * 1.5, this.gridSize * 0.4, 0, Math.PI * 2);
+                                this.ctx.fill();
+                                // 下瞳孔
+                                this.ctx.beginPath();
+                                this.ctx.arc(eyeX, segment.y * this.gridSize + this.gridSize * 3.5, this.gridSize * 0.4, 0, Math.PI * 2);
+                                this.ctx.fill();
+                            } else { // 垂直移动
+                                const eyeY = direction.y > 0 ? segment.y * this.gridSize + this.gridSize * 3.7 : segment.y * this.gridSize + this.gridSize * 1.3;
+                                // 左瞳孔
+                                this.ctx.beginPath();
+                                this.ctx.arc(segment.x * this.gridSize + this.gridSize * 1.5, eyeY, this.gridSize * 0.4, 0, Math.PI * 2);
+                                this.ctx.fill();
+                                // 右瞳孔
+                                this.ctx.beginPath();
+                                this.ctx.arc(segment.x * this.gridSize + this.gridSize * 3.5, eyeY, this.gridSize * 0.4, 0, Math.PI * 2);
+                                this.ctx.fill();
+                            }
+                        } else {
+                            // 绘制蛇身
+                            this.ctx.fillStyle = player.color;
+                            this.ctx.fillRect(
+                                segment.x * this.gridSize,
+                                segment.y * this.gridSize,
+                                this.gridSize * 5,
+                                this.gridSize * 5
+                            );
+                        }
                     });
 
                     // 绘制名字
@@ -392,21 +422,88 @@
             isSnakeInViewport(snake, bounds) {
                 return snake.some(segment => this.isInViewport(segment, bounds));
             }
+
+            // 添加获取蛇移动方向的辅助方法
+            getSnakeDirection(snake) {
+                if (snake.length < 2) return { x: 1, y: 0 }; // 默认向右
+                const head = snake[0];
+                const neck = snake[1];
+                return {
+                    x: Math.sign(head.x - neck.x),
+                    y: Math.sign(head.y - neck.y)
+                };
+            }
+        }
+
+        class ScoreManager {
+            constructor(maxSize = 20) {
+                this.scores = new Map();
+                this.maxSize = maxSize;
+                this.lastCleanup = Date.now();
+                this.cleanupInterval = 10000; // 10秒清理一次
+            }
+
+            update(players) {
+                const now = Date.now();
+
+                // 清除所有死亡玩家的分数
+                for (const [username, data] of this.scores) {
+                    const player = players.find(p => p.username === username);
+                    if (!player || !player.alive) {
+                        this.scores.delete(username);
+                    }
+                }
+
+                // 只更新活着的玩家分数
+                players.forEach(player => {
+                    if (!player.alive) return;
+                    const currentScore = player.snake.length;
+                    this.scores.set(player.username, {
+                        score: currentScore,
+                        lastSeen: now,
+                        color: player.color,
+                        alive: true
+                    });
+                });
+
+                // 定期清理
+                if (now - this.lastCleanup > this.cleanupInterval) {
+                    this.cleanup(now);
+                    this.lastCleanup = now;
+                }
+            }
+
+            cleanup(now) {
+                // 删除30秒未更新的分数
+                const timeoutThreshold = now - 30000;
+                for (const [username, data] of this.scores) {
+                    if (data.lastSeen < timeoutThreshold) {
+                        this.scores.delete(username);
+                    }
+                }
+            }
+
+            getTopScores(limit = 10) {
+                return Array.from(this.scores.entries())
+                    .sort((a, b) => b[1].score - a[1].score)
+                    .slice(0, limit);
+            }
         }
 
         class Game {
             constructor() {
                 this.canvas = document.getElementById('gameCanvas');
                 this.scoreManager = new ScoreManager();
-                this.renderer = new Renderer(this.canvas, GRID_SIZE);
+                this.scale = this.calculateScale();
                 this.camera = { x: 0, y: 0 };
                 this.currentPlayer = null;
                 this.animationFrameId = null;
                 this.lastFrameTime = performance.now();
                 this.isPlayerDead = false;
                 this.wsHandler = null;
-                this.scale = this.calculateScale(); // 新增这行
 
+                // 确保在设置scale后再初始化renderer
+                this.renderer = new Renderer(this.canvas, GRID_SIZE);
                 this.initEventListeners();
             }
 
@@ -430,7 +527,9 @@
             resizeCanvas() {
                 this.canvas.width = window.innerWidth;
                 this.canvas.height = window.innerHeight;
-                this.scale = this.calculateScale(); // 新增这行
+                this.scale = this.calculateScale();
+                // 重新初始化renderer的网格图案
+                this.renderer.initGridPattern();
             }
 
 
@@ -449,28 +548,23 @@
 
                 const viewportBounds = {
                     left: this.camera.x / GRID_SIZE,
-                    right: (this.camera.x + this.canvas.width) / GRID_SIZE,
+                    right: (this.camera.x + this.canvas.width / this.scale) / GRID_SIZE,
                     top: this.camera.y / GRID_SIZE,
-                    bottom: (this.camera.y + this.canvas.height) / GRID_SIZE
+                    bottom: (this.camera.y + this.canvas.height / this.scale) / GRID_SIZE
                 };
 
+                // 确保使用正确的参数调用render方法
                 this.renderer.render(gameState, this.camera, viewportBounds);
-                const player = gameState.players.find(p => p.username === this.currentPlayer);
 
+                const player = gameState.players.find(p => p.username === this.currentPlayer);
                 if (player) {
-                    // 只有当玩家之前是活着的，现在死了的时候才显示死亡界面
                     if (player.alive === false && this.isPlayerDead === false) {
                         this.handlePlayerDeath(player);
                     } else if (player.alive === true) {
-                        // 如果玩家是活着的，重置死亡状态
                         this.isPlayerDead = false;
                     }
                 }
 
-
-                // if (player && !player.alive && !this.isPlayerDead) {
-                //     this.handlePlayerDeath(player);
-                // }
                 this.updateScoreboard();
 
                 const now = performance.now();
@@ -483,22 +577,38 @@
                 this.isPlayerDead = true;
 
                 // 获取所有玩家的分数并排序
-                const allScores = Array.from(this.scoreManager.scores.entries())
-                    .sort((a, b) => b[1].score - a[1].score);
+                const allScores = gameState.players
+                    .map(p => ({
+                        username: p.username,
+                        score: p.snake.length
+                    }))
+                    .sort((a, b) => b.score - a.score);
 
                 // 找到当前玩家的排名
                 let rank = 1;
-                for (let i = 0; i < allScores.length; i++) {
-                    if (allScores[i][0] === player.username) {
-                        rank = i + 1;
-                        break;
-                    }
+                const playerScore = player.snake.length;
+                for (const score of allScores) {
+                    if (score.score > playerScore) rank++;
                 }
 
                 // 更新死亡屏幕信息
-                document.getElementById('finalScore').textContent = player.snake.length;
+                document.getElementById('finalScore').textContent = playerScore;
                 document.getElementById('finalRank').textContent = rank;
                 document.getElementById('deathScreen').style.display = 'flex';
+            }
+
+            calculateRank(score) {
+                // 获取所有活着的玩家的分数
+                const allScores = gameState.players
+                    .map(p => p.snake.length)
+                    .sort((a, b) => b - a);
+                
+                // 找到当前分数的排名
+                let rank = 1;
+                for (const s of allScores) {
+                    if (s > score) rank++;
+                }
+                return rank;
             }
 
             retry() {  // 添加这个方法
@@ -515,16 +625,19 @@
             }
 
             updateScoreboard() {
-                const topScores = this.scoreManager.getTopScores();
+                const topScores = gameState.players
+                    .sort((a, b) => b.snake.length - a.snake.length)
+                    .slice(0, 10);
+
                 let html = '<h3>Top 10 Players</h3>';
 
-                topScores.forEach(([username, data], index) => {
+                topScores.forEach((player, index) => {
                     html += `
-                        <div style="margin: 5px 0; ${data.alive ? '' : 'opacity: 0.5;'}">
+                        <div style="margin: 5px 0; ${player.alive ? '' : 'opacity: 0.5;'}">
                             <span style="color: gold">#${index + 1}</span> 
-                            <span style="color: ${data.color}">${username}</span>: 
-                            <span>${data.score}</span>
-                            ${data.alive ? '' : ' (Dead)'}
+                            <span style="color: ${player.color}">${player.username}</span>: 
+                            <span>${player.snake.length}</span>
+                            ${player.alive ? '' : ' (Dead)'}
                         </div>
                     `;
                 });
