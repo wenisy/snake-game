@@ -27,6 +27,14 @@ const INVINCIBLE_DURATION = 10000; // 无敌模式持续10秒
 let players = new Map(); // WebSocket -> Player data
 let foods = new Set();
 
+// Add a variable to track the highest score and countdown state
+let highestScore = 0;
+let countdownStarted = false;
+let countdownEndTime = null;
+
+// At the global scope, replace or add a new variable for super food countdown end time
+let superFoodCountdownEndTime = null;
+
 class NPCAI {
     constructor(username, level) {
         // 模拟一个没有真实 WebSocket 的玩家对象
@@ -239,7 +247,6 @@ class Player {
 const MIN_SUPER_FOOD_INTERVAL = 15000; // 最小间隔15秒
 const MAX_SUPER_FOOD_INTERVAL = 30000; // 最大间隔30秒
 let nextSuperFoodTime = Date.now() + Math.random() * (MAX_SUPER_FOOD_INTERVAL - MIN_SUPER_FOOD_INTERVAL) + MIN_SUPER_FOOD_INTERVAL;
-let superFoodCountdown = null;
 let superFoodPosition = null;
 let nextSuperFoodPosition = null; // 新增：预定的超级食物位置
 
@@ -306,15 +313,22 @@ function broadcastGameState() {
             snake: player.snake,
             alive: player.alive,
             level: player.level || null,
-            isInvincible: player.isInvincible || false // 添加无敌状态
+            isInvincible: player.isInvincible || false
         }));
+
+    // Add countdown property if countdown is active
+    const countdown = countdownStarted ? Math.ceil((countdownEndTime - Date.now()) / 1000) : null;
+
+    // In the broadcastGameState function, compute superFoodCountdown dynamically
+    const superFoodCountdown = superFoodCountdownEndTime ? Math.ceil((superFoodCountdownEndTime - Date.now()) / 1000) : null;
 
     const gameState = {
         type: 'gameState',
         players: relevantPlayers,
         foods: Array.from(foods),
-        superFoodCountdown,
-        superFoodPosition
+        superFoodCountdown: superFoodCountdown,
+        superFoodPosition,
+        countdown: countdown
     };
 
     const message = JSON.stringify(gameState);
@@ -442,9 +456,28 @@ function convertSnakeToFood(snake) {
     }
 }
 
+// Modify the updateGame function to check for score exceeding 300
 function updateGame() {
     const currentTime = Date.now();
     
+    // Check if any player's score exceeds 300 and start countdown
+    players.forEach(player => {
+        if (player.snake.length > highestScore) {
+            highestScore = player.snake.length;
+        }
+    });
+
+    if (highestScore > 300 && !countdownStarted) {
+        countdownStarted = true;
+        countdownEndTime = currentTime + 20000; // 20 seconds countdown
+    }
+
+    // If countdown is active and time is up, end the game
+    if (countdownStarted && currentTime >= countdownEndTime) {
+        broadcastGameOver();
+        countdownStarted = false; // Reset countdown state
+    }
+
     // 处理超级食物的生成
     if (currentTime >= nextSuperFoodTime) {
         // 预先确定位置
@@ -453,11 +486,12 @@ function updateGame() {
             y: Math.floor(Math.random() * (BOARD_SIZE / GRID_SIZE))
         };
         superFoodPosition = nextSuperFoodPosition; // 立即更新位置以供指示器使用
-        superFoodCountdown = 5; // 5秒倒计时
+        // Set the super food countdown end time to 5 seconds from now
+        superFoodCountdownEndTime = currentTime + 5000; // 5秒倒计时
         // 5秒后生成超级食物
         setTimeout(() => {
             generateSuperFood();
-            superFoodCountdown = null;
+            superFoodCountdownEndTime = null;
         }, 5000);
         nextSuperFoodTime = Infinity; // 防止重复触发
     }
@@ -505,6 +539,28 @@ function updateGame() {
     broadcastGameState();
 }
 
+// Function to broadcast game-over message
+function broadcastGameOver() {
+    const gameOverMessage = JSON.stringify({
+        type: 'gameOver',
+        leaderboard: getLeaderboard()
+    });
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(gameOverMessage);
+        }
+    });
+}
+
+// Function to get leaderboard data
+function getLeaderboard() {
+    return [...players.values(), ...npcs]
+        .sort((a, b) => b.snake.length - a.snake.length)
+        .map(player => ({
+            username: player.username,
+            score: player.snake.length
+        }));
+}
 
 // Game loop
 setInterval(updateGame, 50); // 20 updates per second

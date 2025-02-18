@@ -177,6 +177,7 @@
     <div id="gameContainer">
         <canvas id="gameCanvas"></canvas>
         <div id="scoreboard"></div>
+        <div id="countdownTimer" style="position: fixed; top: 10px; left: 50%; transform: translateX(-50%); font-size: 48px; color: yellow; z-index: 200;"></div>
     </div>
     <div id="deathScreen" style="display: none;">
         <div class="modal-content">
@@ -729,6 +730,21 @@
 
                 this.updateScoreboard();
 
+                // Update the countdown timer display if countdown is active
+                if (gameState && gameState.countdown != null) {
+                    document.getElementById('countdownTimer').innerHTML = `<div style="text-align: center;">
+                        <div style="font-size: 24px; margin-bottom: 10px; color: #ff4444;">游戏即将结束</div>
+                        <div style="font-size: 48px; color: yellow;">${gameState.countdown}</div>
+                    </div>`;
+                } else if (gameState && gameState.superFoodCountdown != null) {
+                    document.getElementById('countdownTimer').innerHTML = `<div style="text-align: center;">
+                        <div style="font-size: 24px; margin-bottom: 10px; color: #ffd700;">超级食物即将出现</div>
+                        <div style="font-size: 48px; color: yellow;">${gameState.superFoodCountdown}</div>
+                    </div>`;
+                } else {
+                    document.getElementById('countdownTimer').innerHTML = '';
+                }
+
                 const now = performance.now();
                 const delta = now - this.lastFrameTime;
                 this.fps = Math.round(1000 / delta);
@@ -860,6 +876,8 @@
                     const data = JSON.parse(event.data);
                     if (data.type === 'gameState') {
                         gameState = data;
+                    } else if (data.type === 'gameOver') {
+                        handleGameOver(data.leaderboard);
                     }
                 };
 
@@ -1044,12 +1062,31 @@
             window.retryGame = () => {
                 if (window.gameInstance) {
                     window.gameInstance.retry();
+                    document.getElementById('loginScreen').style.display = 'flex';
+                    document.getElementById('gameContainer').style.display = 'none';
                 }
             };
         }
 
         // 启动游戏
         initGame();
+
+        // Add a function to handle game-over message
+        function handleGameOver(leaderboard) {
+            // Define emojis for top three
+            const topEmojis = ['🥇', '🥈', '🥉'];
+            let html = '<h2 style="font-size: 32px;">Game Over!</h2><h3 style="font-size: 24px;">Leaderboard</h3>';
+            leaderboard.forEach((player, index) => {
+                if (index < 3) {
+                    html += `<div style="font-size: 20px; font-weight: bold; margin: 5px 0;">${topEmojis[index]} #${index + 1} ${player.username}: ${player.score}</div>`;
+                } else {
+                    html += `<div style="font-size: 16px; margin: 3px 0;">#${index + 1} ${player.username}: ${player.score}</div>`;
+                }
+            });
+            html += '<button onclick="retryGame()" style="font-size: 18px; padding: 12px 30px;">Try Again</button>';
+            document.getElementById('deathScreen').querySelector('.modal-content').innerHTML = html;
+            document.getElementById('deathScreen').style.display = 'flex';
+        }
     </script>
 </body>
 
