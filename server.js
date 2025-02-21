@@ -21,7 +21,6 @@ let eatenFoodCounter = 0;
 const INITIAL_FOOD_COUNT = 1500; // 原来是50,现在增加到150
 const INITIAL_NPC_COUNTS = 10;
 const GENERATE_FOOD = 1; // 每吃掉3个食物, 屏幕恢复1个食物
-const SUPER_FOOD_PROBABILITY = 0.01; // 1%的概率生成超级食物
 const INVINCIBLE_DURATION = 10000; // 无敌模式持续10秒
 
 let players = new Map(); // WebSocket -> Player data
@@ -539,17 +538,65 @@ function updateGame() {
     broadcastGameState();
 }
 
-// Function to broadcast game-over message
+// 添加重置游戏的函数
+function resetGame() {
+    // 重置所有游戏状态
+    players = new Map();
+    foods = new Set();
+    npcs = [];
+    highestScore = 0;
+    eatenFoodCounter = 0;
+    countdownStarted = false;
+    countdownEndTime = null;
+    superFoodCountdownEndTime = null;
+    superFoodPosition = null;
+    nextSuperFoodPosition = null;
+    
+    // 重新生成初始食物
+    generateFood(INITIAL_FOOD_COUNT);
+    
+    // 重新生成NPC
+    spawnNPCs(INITIAL_NPC_COUNTS);
+    
+    // 重置计时器
+    lastNPCCheck = Date.now();
+    lastCleanupTime = Date.now();
+    
+    // 设置下一次超级食物生成时间
+    nextSuperFoodTime = Date.now() + 
+        Math.random() * (MAX_SUPER_FOOD_INTERVAL - MIN_SUPER_FOOD_INTERVAL) + 
+        MIN_SUPER_FOOD_INTERVAL;
+    
+    console.log('Game has been reset');
+}
+
+// 修改 broadcastGameOver 函数
 function broadcastGameOver() {
     const gameOverMessage = JSON.stringify({
         type: 'gameOver',
         leaderboard: getLeaderboard()
     });
+    
+    // 广播游戏结束消息
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(gameOverMessage);
         }
     });
+    
+    // 设置延迟重置游戏
+    setTimeout(() => {
+        resetGame();
+        // 广播游戏重置消息
+        const resetMessage = JSON.stringify({
+            type: 'gameReset'
+        });
+        wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+                client.send(resetMessage);
+            }
+        });
+    }, 5000); // 5秒后重置游戏
 }
 
 // Function to get leaderboard data

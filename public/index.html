@@ -878,6 +878,8 @@
                         gameState = data;
                     } else if (data.type === 'gameOver') {
                         handleGameOver(data.leaderboard);
+                    } else if (data.type === 'gameReset') {
+                        handleGameReset();
                     }
                 };
 
@@ -1086,6 +1088,31 @@
             html += '<button onclick="retryGame()" style="font-size: 18px; padding: 12px 30px;">Try Again</button>';
             document.getElementById('deathScreen').querySelector('.modal-content').innerHTML = html;
             document.getElementById('deathScreen').style.display = 'flex';
+        }
+
+        // 添加处理游戏重置的函数
+        function handleGameReset() {
+            // 显示登录界面
+            document.getElementById('loginScreen').style.display = 'flex';
+            document.getElementById('gameContainer').style.display = 'none';
+            document.getElementById('deathScreen').style.display = 'none';
+            
+            // 重置游戏状态
+            gameState = {
+                players: [],
+                foods: []
+            };
+            
+            // 清空计分板
+            document.getElementById('scoreboard').innerHTML = '';
+            
+            // 清空倒计时显示
+            document.getElementById('countdownTimer').innerHTML = '';
+            
+            // 重置用户名输入框
+            document.getElementById('username').value = '';
+            
+            console.log('Game has been reset');
         }
     </script>
 </body>
